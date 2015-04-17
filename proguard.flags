@@ -1,0 +1,2 @@
+-dontshrink
+-dontoptimize

@@ -360,12 +360,50 @@ public class LogWrapper {
     }
 
     /**
+     * Logs the method entry as "---> caller()". This is a bit slower than
+     * {@link #logMethodEntry(String)}.
+     */
+    public void logMethodEntry() {
+        if (mEnableLogs) {
+            // int i = 0;
+            // for (StackTraceElement s : Thread.currentThread().getStackTrace()) {
+            // i++;
+            // if (s.getMethodName().equals("logMethodEntry")) {
+            // break;
+            // }
+            // }
+            // String methodName = Thread.currentThread().getStackTrace()[i].getMethodName();
+            String methodName = Thread.currentThread().getStackTrace()[3].getMethodName();
+            logInfo("---> " + methodName + "()");
+        }
+    }
+
+    /**
      * Logs the method exit as "<--- methodName()".
      *
      * @param methodName the methodName
      */
     public void logMethodExit(String methodName) {
         if (mEnableLogs) {
+            logInfo("<--- " + methodName + "()");
+        }
+    }
+
+    /**
+     * Logs the method exit as "<--- caller()". This is a bit slower than
+     * {@link #logMethodExit(String)}.
+     */
+    public void logMethodExit() {
+        if (mEnableLogs) {
+            // int i = 0;
+            // for (StackTraceElement s : Thread.currentThread().getStackTrace()) {
+            // i++;
+            // if (s.getMethodName().equals("logMethodEntry")) {
+            // break;
+            // }
+            // }
+            // String methodName = Thread.currentThread().getStackTrace()[i].getMethodName();
+            String methodName = Thread.currentThread().getStackTrace()[3].getMethodName();
             logInfo("<--- " + methodName + "()");
         }
     }

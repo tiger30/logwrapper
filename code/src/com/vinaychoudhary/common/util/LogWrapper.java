@@ -406,6 +406,24 @@ public class LogWrapper {
     }
 
     /**
+     * Set TAG log level. Global TAG takes priority over TAG based log priority. If TAG priority is
+     * set lower and global priority is higher then only TAG logs with equal or higher priority will
+     * be shown.
+     *
+     * @param logCatLogLevel {@link LogLevel} for logging in LogCat.
+     * @param fileLogLevel {@link LogLevel} for logging in file.
+     * @see LogConfig#setGlobalLogLevel(LogLevel, LogLevel)
+     */
+    public synchronized void setGlobalLogLevel(LogLevel logCatLogLevel, LogLevel fileLogLevel) {
+        if (logCatLogLevel != null) {
+            mLogLevel = logCatLogLevel;
+        }
+        if (fileLogLevel != null) {
+            mFileLogLevel = fileLogLevel;
+        }
+    }
+
+    /**
      * Logs the method entry as "---> methodName()". It has Debug level priority.
      *
      * @param methodName the methodName

@@ -496,15 +496,13 @@ public class LogWrapper {
     }
 
     /**
-     * Logs the info message.
+     * Logs the error message.
      *
      * @param msg the message
      */
-    public void logInfo(String msg) {
-        if (mEnableLogs && sConfig.mLoggingEnabled) {
-            if (sConfig.mLogLevel.ordinal() >= LogLevel.INFO.ordinal()
-                    && mLogLevel.ordinal() >= LogLevel.INFO.ordinal())
-                Log.i(mTag, msg);
+    public void logError(String msg) {
+        if (canLogAtLevel(LogLevel.ERROR)) {
+            Log.e(mTag, msg);
         }
     }
 
@@ -514,10 +512,19 @@ public class LogWrapper {
      * @param msg the message
      */
     public void logWarning(String msg) {
-        if (mEnableLogs && sConfig.mLoggingEnabled) {
-            if (sConfig.mLogLevel.ordinal() >= LogLevel.WARNING.ordinal()
-                    && mLogLevel.ordinal() >= LogLevel.WARNING.ordinal())
-                Log.w(mTag, msg);
+        if (canLogAtLevel(LogLevel.WARNING)) {
+            Log.w(mTag, msg);
+        }
+    }
+
+    /**
+     * Logs the info message.
+     *
+     * @param msg the message
+     */
+    public void logInfo(String msg) {
+        if (canLogAtLevel(LogLevel.INFO)) {
+            Log.i(mTag, msg);
         }
     }
 
@@ -527,23 +534,8 @@ public class LogWrapper {
      * @param msg the message
      */
     public void logDebug(String msg) {
-        if (mEnableLogs && sConfig.mLoggingEnabled) {
-            if (sConfig.mLogLevel.ordinal() >= LogLevel.DEBUG.ordinal()
-                    && mLogLevel.ordinal() >= LogLevel.DEBUG.ordinal())
-                Log.d(mTag, msg);
-        }
-    }
-
-    /**
-     * Logs the error message.
-     *
-     * @param msg the message
-     */
-    public void logError(String msg) {
-        if (mEnableLogs && sConfig.mLoggingEnabled) {
-            if (sConfig.mLogLevel.ordinal() >= LogLevel.ERROR.ordinal()
-                    && mLogLevel.ordinal() >= LogLevel.ERROR.ordinal())
-                Log.e(mTag, msg);
+        if (canLogAtLevel(LogLevel.DEBUG)) {
+            Log.d(mTag, msg);
         }
     }
 
@@ -553,10 +545,8 @@ public class LogWrapper {
      * @param msg the message
      */
     public void logVerbose(String msg) {
-        if (mEnableLogs && sConfig.mLoggingEnabled) {
-            if (sConfig.mLogLevel.ordinal() >= LogLevel.VERBOSE.ordinal()
-                    && mLogLevel.ordinal() >= LogLevel.VERBOSE.ordinal())
-                Log.v(mTag, msg);
+        if (canLogAtLevel(LogLevel.VERBOSE)) {
+            Log.v(mTag, msg);
         }
     }
 
@@ -566,11 +556,7 @@ public class LogWrapper {
      * @param exp the exception
      */
     public void logExceptionError(Throwable e) {
-        if (mEnableLogs && sConfig.mLoggingEnabled) {
-            if (sConfig.mLogLevel.ordinal() >= LogLevel.ERROR.ordinal()
-                    && mLogLevel.ordinal() >= LogLevel.ERROR.ordinal())
-                Log.e(mTag, e.toString());
-        }
+        logError(e.toString());
     }
 
     /**
@@ -579,11 +565,7 @@ public class LogWrapper {
      * @param exp the exception that occurred.
      */
     public void logStackTrace(Throwable e) {
-        if (mEnableLogs && sConfig.mLoggingEnabled) {
-            if (sConfig.mLogLevel.ordinal() >= LogLevel.ERROR.ordinal()
-                    && mLogLevel.ordinal() >= LogLevel.ERROR.ordinal())
-                Log.e(mTag, getStackTace(e));
-        }
+        logError(getStackTace(e));
     }
 
     private String getStackTace(Throwable e) {
@@ -591,6 +573,15 @@ public class LogWrapper {
         PrintWriter pw = new PrintWriter(sw);
         e.printStackTrace(pw);
         return sw.toString();
+    }
+
+    private boolean canLogAtLevel(LogLevel level) {
+        if (mEnableLogs && sConfig.mLoggingEnabled) {
+            if (sConfig.mLogLevel.ordinal() >= level.ordinal()
+                    && mLogLevel.ordinal() >= level.ordinal())
+                return true;
+        }
+        return false;
     }
 
     /**

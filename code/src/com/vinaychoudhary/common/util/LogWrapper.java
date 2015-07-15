@@ -32,11 +32,6 @@ import android.util.Log;
  */
 @SuppressLint("DefaultLocale")
 public class LogWrapper {
-    private static final String LOG_INFO = "I";
-    private static final String LOG_WARNING = "W";
-    private static final String LOG_DEBUG = "D";
-    private static final String LOG_ERROR = "E";
-    private static final String LOG_VERBOSE = "V";
 
     public static final String DEFAULT_TAG = "DEFAULT-LOG-TAG";
     public static final String DEFAULT_FILE = "DEFAULT_LOGS.log";
@@ -51,6 +46,26 @@ public class LogWrapper {
      * 128 KB is minimum size
      */
     private static final long MIN_LOG_FILE_SIZE = 1024 * 128;
+
+    /**
+     * The Log levels. Based on Android Log Levels.
+     */
+    public enum LogLevel {
+        VERBOSE("V"), DEBUG("D"), INFO("I"), WARNING("W"), ERROR("E");
+
+        /**
+         * Tag used to identify priority of logs in file.
+         */
+        private String mFileTag;
+
+        private LogLevel(String fileTag) {
+            mFileTag = fileTag;
+        }
+
+        public String getFileTag() {
+            return mFileTag;
+        }
+    }
 
     /**
      * Class used for configuration of {@link LogWrapper}. It configures the default TAG, log dir
@@ -69,6 +84,8 @@ public class LogWrapper {
             }
         }
 
+        private static final int CALLER_METHOD_IDX_IN_STACK = 3;
+
         private String mDefTag = DEFAULT_TAG;
         private String mDefFileName = DEFAULT_FILE;
         private String mDefDirName = DEFAULT_DIR;
@@ -76,6 +93,9 @@ public class LogWrapper {
         private boolean mIsConfigSet = false;
         private boolean mLoggingEnabled = true;
         private boolean mFileLoggingEnabled = true;
+        private LogLevel mLogLevel = LogLevel.VERBOSE;
+        private LogLevel mFileLogLevel = LogLevel.VERBOSE;
+        private boolean mLookInStackForMethodName = false;
 
         /**
          * Configures the {@link LogWrapper}. Can only be configured once in an application. No
@@ -127,14 +147,44 @@ public class LogWrapper {
          * logging. If disabled no logs will work, if enabled TAG logging will work according to
          * individual TAG setting.
          *
-         * @param enableConsoleLogs <i><b>true</b></i> for enabling console logs,
-         *            <i><b>false</b></i> for disabling console logs.
+         * @param enableLogCatLogs <i><b>true</b></i> for enabling LogCat logs, <i><b>false</b></i>
+         *            for disabling LogCat logs.
          * @param enableFileLogs <i><b>true</b></i> for enabling file logging, <i><b>false</b></i>
          *            for disabling file logging.
          */
-        public void setLoggingEnabled(boolean enableConsoleLogs, boolean enableFileLogs) {
-            mLoggingEnabled = enableConsoleLogs;
+        public void setGlobalLoggingEnabled(boolean enableLogCatLogs, boolean enableFileLogs) {
+            mLoggingEnabled = enableLogCatLogs;
             mFileLoggingEnabled = enableFileLogs;
+        }
+
+        /**
+         * Set Global log level. Applies to all tags and takes priority over TAG based log priority.
+         * If TAG priority is set lower and global priority is higher then TAG logs with lower
+         * priority will not be shown.
+         *
+         * @param logCatLogLevel {@link LogLevel} for logging in LogCat.
+         * @param fileLogLevel {@link LogLevel} for logging in file.
+         */
+        public void setGlobalLogLevel(LogLevel logCatLogLevel, LogLevel fileLogLevel) {
+            if (logCatLogLevel != null) {
+                mLogLevel = logCatLogLevel;
+            }
+            if (fileLogLevel != null) {
+                mFileLogLevel = fileLogLevel;
+            }
+        }
+
+        /**
+         * Whether search for method name in stack trace or use an predefined index. Using
+         * predefined index avoid searching for method name but may vary based on Java/Android
+         * runtime. Index is set to {@value #CALLER_METHOD_IDX_IN_STACK}.
+         *
+         * @param lookInStack if true method name is searched else predefined index is used.
+         * @see LogWrapper#logMethodEntry()
+         * @see LogWrapper#logMethodExit()
+         */
+        public void findMethodNameInStack(boolean lookInStack) {
+            mLookInStackForMethodName = lookInStack;
         }
     }
 
@@ -147,6 +197,8 @@ public class LogWrapper {
     private boolean mCanWriteFile;
     private boolean mEnableLogs = true;
     private boolean mEnableFileLogs = true;
+    private LogLevel mLogLevel = LogLevel.VERBOSE;
+    private LogLevel mFileLogLevel = LogLevel.VERBOSE;
 
     private static volatile HashMap<String, LogWrapper> sLoggers = new HashMap<String, LogWrapper>();
     private static volatile HashMap<String, Integer> sLogRefs = new HashMap<String, Integer>();
@@ -339,98 +391,89 @@ public class LogWrapper {
     }
 
     /**
-     * Enables logs for this TAG at runtime.
+     * Enable or disable logging for this TAG. This is TAG based flag and is overridden by global
+     * flag.
      *
-     * @see LogConfig#setLoggingEnabled(boolean, boolean)
+     * @param enableLogCatLogs <i><b>true</b></i> for enabling LogCat logs, <i><b>false</b></i> for
+     *            disabling LogCat logs.
+     * @param enableFileLogs <i><b>true</b></i> for enabling file logging, <i><b>false</b></i> for
+     *            disabling file logging.
+     * @see LogConfig#setGlobalLoggingEnabled(boolean, boolean)
      */
-    public synchronized void enableLogs() {
-        mEnableLogs = true;
+    public synchronized void setLoggingEnabled(boolean enableLogCatLogs, boolean enableFileLogs) {
+        mEnableLogs = enableLogCatLogs;
+        mEnableFileLogs = enableFileLogs;
     }
 
     /**
-     * Disable logs for this TAG at runtime.
-     *
-     * @see LogConfig#setLoggingEnabled(boolean, boolean)
-     */
-    public synchronized void disableLogs() {
-        mEnableLogs = false;
-    }
-
-    /**
-     * Enables file logs for this TAG at runtime.
-     *
-     * @see LogConfig#setLoggingEnabled(boolean, boolean)
-     */
-    public synchronized void enableFileLogs() {
-        mEnableFileLogs = true;
-    }
-
-    /**
-     * Disable file logs for this TAG at runtime.
-     *
-     * @see LogConfig#setLoggingEnabled(boolean, boolean)
-     */
-    public synchronized void disableFileLogs() {
-        mEnableFileLogs = false;
-    }
-
-    /**
-     * Logs the method entry as "---> methodName()".
+     * Logs the method entry as "---> methodName()". It has Debug level priority.
      *
      * @param methodName the methodName
+     * @see #logMethodEntry()
      */
     public void logMethodEntry(String methodName) {
         if (mEnableLogs && sConfig.mLoggingEnabled) {
-            logInfo("---> " + methodName + "()");
+            logDebug("---> " + methodName + "()");
         }
     }
 
     /**
      * Logs the method entry as "---> caller()". This is a bit slower than
-     * {@link #logMethodEntry(String)}.
+     * {@link #logMethodEntry(String)}. It has Debug level priority.
      */
     public void logMethodEntry() {
+        String methodName = null;
         if (mEnableLogs && sConfig.mLoggingEnabled) {
-            // int i = 0;
-            // for (StackTraceElement s : Thread.currentThread().getStackTrace()) {
-            // i++;
-            // if (s.getMethodName().equals("logMethodEntry")) {
-            // break;
-            // }
-            // }
-            // String methodName = Thread.currentThread().getStackTrace()[i].getMethodName();
-            String methodName = Thread.currentThread().getStackTrace()[3].getMethodName();
-            logInfo("---> " + methodName + "()");
+            if (sConfig.mLookInStackForMethodName) {
+                int i = 0;
+                for (StackTraceElement s : Thread.currentThread().getStackTrace()) {
+                    i++;
+                    if (s.getMethodName().equals("logMethodEntry")) {
+                        break;
+                    }
+                }
+                methodName = Thread.currentThread().getStackTrace()[i].getMethodName();
+            } else {
+                methodName = Thread.currentThread().getStackTrace()[LogConfig.CALLER_METHOD_IDX_IN_STACK]
+                        .getMethodName();
+            }
+            logDebug("---> " + methodName + "()");
         }
     }
 
     /**
-     * Logs the method exit as "<--- methodName()".
+     * Logs the method exit as "<--- methodName()". It has Debug level priority.
      *
      * @param methodName the methodName
+     * @see #logMethodExit()
      */
     public void logMethodExit(String methodName) {
         if (mEnableLogs && sConfig.mLoggingEnabled) {
-            logInfo("<--- " + methodName + "()");
+            logDebug("<--- " + methodName + "()");
         }
     }
 
     /**
      * Logs the method exit as "<--- caller()". This is a bit slower than
-     * {@link #logMethodExit(String)}.
+     * {@link #logMethodExit(String)}. It has Debug level priority.
      */
     public void logMethodExit() {
+        String methodName = null;
         if (mEnableLogs && sConfig.mLoggingEnabled) {
-            // int i = 0;
-            // for (StackTraceElement s : Thread.currentThread().getStackTrace()) {
-            // i++;
-            // if (s.getMethodName().equals("logMethodExit")) {
-            // break;
-            // }
-            // }
-            // String methodName = Thread.currentThread().getStackTrace()[i].getMethodName();
-            String methodName = Thread.currentThread().getStackTrace()[3].getMethodName();
-            logInfo("<--- " + methodName + "()");
+            if (sConfig.mLookInStackForMethodName) {
+                int i = 0;
+                for (StackTraceElement s : Thread.currentThread().getStackTrace()) {
+                    i++;
+                    if (s.getMethodName().equals("logMethodExit")) {
+                        break;
+                    }
+                }
+                methodName = Thread.currentThread().getStackTrace()[i].getMethodName();
+            } else {
+                methodName = Thread.currentThread().getStackTrace()[LogConfig.CALLER_METHOD_IDX_IN_STACK]
+                        .getMethodName();
+            }
+            logDebug("<--- " + methodName + "()");
         }
     }
 
@@ -441,7 +484,9 @@ public class LogWrapper {
      */
     public void logInfo(String msg) {
         if (mEnableLogs && sConfig.mLoggingEnabled) {
-            Log.i(mTag, msg);
+            if (sConfig.mLogLevel.ordinal() >= LogLevel.INFO.ordinal()
+                    && mLogLevel.ordinal() >= LogLevel.INFO.ordinal())
+                Log.i(mTag, msg);
         }
     }
 
@@ -452,7 +497,9 @@ public class LogWrapper {
      */
     public void logWarning(String msg) {
         if (mEnableLogs && sConfig.mLoggingEnabled) {
-            Log.w(mTag, msg);
+            if (sConfig.mLogLevel.ordinal() >= LogLevel.WARNING.ordinal()
+                    && mLogLevel.ordinal() >= LogLevel.WARNING.ordinal())
+                Log.w(mTag, msg);
         }
     }
 
@@ -463,7 +510,9 @@ public class LogWrapper {
      */
     public void logDebug(String msg) {
         if (mEnableLogs && sConfig.mLoggingEnabled) {
-            Log.d(mTag, msg);
+            if (sConfig.mLogLevel.ordinal() >= LogLevel.DEBUG.ordinal()
+                    && mLogLevel.ordinal() >= LogLevel.DEBUG.ordinal())
+                Log.d(mTag, msg);
         }
     }
 
@@ -474,7 +523,9 @@ public class LogWrapper {
      */
     public void logError(String msg) {
         if (mEnableLogs && sConfig.mLoggingEnabled) {
-            Log.e(mTag, msg);
+            if (sConfig.mLogLevel.ordinal() >= LogLevel.ERROR.ordinal()
+                    && mLogLevel.ordinal() >= LogLevel.ERROR.ordinal())
+                Log.e(mTag, msg);
         }
     }
 
@@ -485,7 +536,9 @@ public class LogWrapper {
      */
     public void logVerbose(String msg) {
         if (mEnableLogs && sConfig.mLoggingEnabled) {
-            Log.v(mTag, msg);
+            if (sConfig.mLogLevel.ordinal() >= LogLevel.VERBOSE.ordinal()
+                    && mLogLevel.ordinal() >= LogLevel.VERBOSE.ordinal())
+                Log.v(mTag, msg);
         }
     }
 
@@ -496,7 +549,9 @@ public class LogWrapper {
      */
     public void logExceptionError(Throwable e) {
         if (mEnableLogs && sConfig.mLoggingEnabled) {
-            Log.e(mTag, e.toString());
+            if (sConfig.mLogLevel.ordinal() >= LogLevel.ERROR.ordinal()
+                    && mLogLevel.ordinal() >= LogLevel.ERROR.ordinal())
+                Log.e(mTag, e.toString());
         }
     }
 
@@ -507,7 +562,9 @@ public class LogWrapper {
      */
     public void logStackTrace(Throwable e) {
         if (mEnableLogs && sConfig.mLoggingEnabled) {
-            Log.e(mTag, getStackTace(e));
+            if (sConfig.mLogLevel.ordinal() >= LogLevel.ERROR.ordinal()
+                    && mLogLevel.ordinal() >= LogLevel.ERROR.ordinal())
+                Log.e(mTag, getStackTace(e));
         }
     }
 
@@ -526,7 +583,7 @@ public class LogWrapper {
     public void writeInfo(String msg) {
         logInfo(msg);
         synchronized (this) {
-            writeToFile(msg, LOG_INFO);
+            writeToFile(msg, LogLevel.INFO);
         }
     }
 
@@ -538,7 +595,7 @@ public class LogWrapper {
     public void writeWarning(String msg) {
         logWarning(msg);
         synchronized (this) {
-            writeToFile(msg, LOG_WARNING);
+            writeToFile(msg, LogLevel.WARNING);
         }
     }
 
@@ -550,7 +607,7 @@ public class LogWrapper {
     public void writeDebug(String msg) {
         logDebug(msg);
         synchronized (this) {
-            writeToFile(msg, LOG_DEBUG);
+            writeToFile(msg, LogLevel.DEBUG);
         }
     }
 
@@ -562,7 +619,7 @@ public class LogWrapper {
     public void writeError(String msg) {
         logError(msg);
         synchronized (this) {
-            writeToFile(msg, LOG_ERROR);
+            writeToFile(msg, LogLevel.ERROR);
         }
     }
 
@@ -574,7 +631,7 @@ public class LogWrapper {
     public void writeVerbose(String msg) {
         logVerbose(msg);
         synchronized (this) {
-            writeToFile(msg, LOG_VERBOSE);
+            writeToFile(msg, LogLevel.VERBOSE);
         }
     }
 
@@ -587,7 +644,7 @@ public class LogWrapper {
     public void writeException(Throwable e) {
         logExceptionError(e);
         synchronized (mTag) {
-            writeToFile(e.toString(), LOG_ERROR);
+            writeToFile(e.toString(), LogLevel.ERROR);
         }
     }
 
@@ -600,12 +657,17 @@ public class LogWrapper {
     public void writeStackTrace(Throwable e) {
         logStackTrace(e);
         synchronized (mTag) {
-            writeToFile(getStackTace(e), LOG_ERROR);
+            writeToFile(getStackTace(e), LogLevel.ERROR);
         }
     }
 
-    private void writeToFile(String msg, String level) {
+    private void writeToFile(String msg, LogLevel level) {
         if (!mCanWriteFile || !mEnableFileLogs || !sConfig.mFileLoggingEnabled) {
+            return;
+        }
+
+        if (sConfig.mFileLogLevel.ordinal() >= level.ordinal()
+                && mFileLogLevel.ordinal() >= level.ordinal()) {
             return;
         }
 
@@ -613,8 +675,8 @@ public class LogWrapper {
         BufferedWriter myOutWriter = null;
         try {
             Timestamp t = new Timestamp(System.currentTimeMillis());
-            String log = String.format("%s %s/%-10s(%d): %s\n", t.toString(), level, mTag,
-                    Process.myTid(), msg);
+            String log = String.format("%s %s/%s(%d): %s\n", t.toString(), level.getFileTag(),
+                    mTag, Process.myTid(), msg);
             fOut = new FileWriter(mLogFile, true);
             myOutWriter = new BufferedWriter(fOut);
             myOutWriter.write(log);

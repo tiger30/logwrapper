@@ -27,7 +27,8 @@ import android.util.Log;
  * <br>
  * If being used as library each library should use it as static library and not as shared library.
  *
- * @see For configuration : {@link LogConfig#setConfig(String, String, String)};
+ * @see For configuration : {@link LogConfig#setConfig(String, String, String, long)};
+ * @author Vinay Choudhary
  */
 @SuppressLint("DefaultLocale")
 public class LogWrapper {
@@ -73,6 +74,8 @@ public class LogWrapper {
         private String mDefDirName = DEFAULT_DIR;
         private long mLogFileSize = MAX_LOG_FILE_SIZE;
         private boolean mIsConfigSet = false;
+        private boolean mLoggingEnabled = true;
+        private boolean mFileLoggingEnabled = true;
 
         /**
          * Configures the {@link LogWrapper}. Can only be configured once in an application. No
@@ -118,6 +121,21 @@ public class LogWrapper {
                 throw new LogConfigAlreadySetException("Log Configuration has already been set.");
             }
         }
+
+        /**
+         * Enable or disable all logging. This is master flag and overrides individual TAG based
+         * logging. If disabled no logs will work, if enabled TAG logging will work according to
+         * individual TAG setting.
+         *
+         * @param enableConsoleLogs <i><b>true</b></i> for enabling console logs,
+         *            <i><b>false</b></i> for disabling console logs.
+         * @param enableFileLogs <i><b>true</b></i> for enabling file logging, <i><b>false</b></i>
+         *            for disabling file logging.
+         */
+        public void setLoggingEnabled(boolean enableConsoleLogs, boolean enableFileLogs) {
+            mLoggingEnabled = enableConsoleLogs;
+            mFileLoggingEnabled = enableFileLogs;
+        }
     }
 
     private String mTag;
@@ -130,15 +148,15 @@ public class LogWrapper {
     private boolean mEnableLogs = true;
     private boolean mEnableFileLogs = true;
 
-    private static volatile HashMap<String, LogWrapper> mLoggers = new HashMap<String, LogWrapper>();
-    private static volatile HashMap<String, Integer> mLogRefs = new HashMap<String, Integer>();
+    private static volatile HashMap<String, LogWrapper> sLoggers = new HashMap<String, LogWrapper>();
+    private static volatile HashMap<String, Integer> sLogRefs = new HashMap<String, Integer>();
 
-    private static final LogConfig mConfig = new LogConfig();
+    private static final LogConfig sConfig = new LogConfig();
 
     private LogWrapper(String tag) {
-        mTag = tag == null ? mConfig.mDefTag : tag;
-        mDirPath = mExtStrPath.getAbsolutePath() + "/" + mConfig.mDefDirName;
-        mFileName = mConfig.mDefFileName;
+        mTag = tag == null ? sConfig.mDefTag : tag;
+        mDirPath = mExtStrPath.getAbsolutePath() + "/" + sConfig.mDefDirName;
+        mFileName = sConfig.mDefFileName;
 
         initFile();
 
@@ -146,10 +164,10 @@ public class LogWrapper {
     }
 
     private LogWrapper(String tag, String dirPath, String fileName) {
-        mTag = tag == null ? mConfig.mDefTag : tag;
-        mFileName = fileName == null ? mTag + ".log" : mConfig.mDefFileName;
+        mTag = tag == null ? sConfig.mDefTag : tag;
+        mFileName = fileName == null ? mTag + ".log" : sConfig.mDefFileName;
         if (dirPath == null) {
-            mDirPath = mExtStrPath.getAbsolutePath() + "/" + mConfig.mDefDirName;
+            mDirPath = mExtStrPath.getAbsolutePath() + "/" + sConfig.mDefDirName;
         }
 
         initFile();
@@ -171,9 +189,9 @@ public class LogWrapper {
                     mCanWriteFile = true;
                     logInfo("Initializing log file: " + mLogFile.getAbsolutePath());
                 }
-                else if (mLogFile.length() > mConfig.mLogFileSize) {
+                else if (mLogFile.length() > sConfig.mLogFileSize) {
                     logInfo("Deleting old log file (" + mLogFile.getAbsolutePath()
-                            + ") as it exceeds " + mConfig.mLogFileSize + " bytes.");
+                            + ") as it exceeds " + sConfig.mLogFileSize + " bytes.");
                     mLogFile.delete();
                     mLogFile.createNewFile();
                     mCanWriteFile = true;
@@ -213,23 +231,23 @@ public class LogWrapper {
      */
     public static LogWrapper getLogger(String tag) {
         if (tag == null) {
-            tag = mConfig.mDefTag;
+            tag = sConfig.mDefTag;
         }
 
         LogWrapper logger = null;
 
         synchronized (LogWrapper.class) {
-            logger = mLoggers.get(tag);
+            logger = sLoggers.get(tag);
             if (logger == null) {
                 logger = new LogWrapper(tag);
-                mLoggers.put(tag, logger);
+                sLoggers.put(tag, logger);
             }
 
-            Integer count = mLogRefs.get(tag);
+            Integer count = sLogRefs.get(tag);
 
             // count will be null when logger is created for a tag for first time.
             count = count == null ? 0 : count;
-            mLogRefs.put(tag, ++count);
+            sLogRefs.put(tag, ++count);
         }
 
         // Log.i(DEFAULT_TAG, "Returning logwrapper for: " + logger.mTag);
@@ -266,22 +284,22 @@ public class LogWrapper {
      */
     public static LogWrapper getLogger(String tag, String dirPath, String fileName) {
         if (tag == null) {
-            tag = mConfig.mDefTag;
+            tag = sConfig.mDefTag;
         }
 
         LogWrapper logger = null;
         synchronized (LogWrapper.class) {
-            logger = mLoggers.get(tag);
+            logger = sLoggers.get(tag);
             if (logger == null) {
                 logger = new LogWrapper(tag, dirPath, fileName);
-                mLoggers.put(tag, logger);
+                sLoggers.put(tag, logger);
             }
 
-            Integer count = mLogRefs.get(tag);
+            Integer count = sLogRefs.get(tag);
 
             // count will be null when logger is created for a tag for first time.
             count = count == null ? 0 : count;
-            mLogRefs.put(tag, ++count);
+            sLogRefs.put(tag, ++count);
         }
 
         return logger;
@@ -297,31 +315,33 @@ public class LogWrapper {
     public static void releaseLogger(String tag) {
 
         if (tag == null) {
-            tag = mConfig.mDefTag;
+            tag = sConfig.mDefTag;
         }
 
         synchronized (LogWrapper.class) {
-            LogWrapper logger = mLoggers.get(tag);
+            LogWrapper logger = sLoggers.get(tag);
             if (logger == null) {
                 // Count will not be null, if tag has an logger in map.
-                Integer count = mLogRefs.get(tag);
+                Integer count = sLogRefs.get(tag);
 
                 if (count == 1) {
                     // release instance
                     logger = null;
-                    mLoggers.put(tag, null);
+                    sLoggers.put(tag, null);
                 }
-                mLogRefs.put(tag, --count);
+                sLogRefs.put(tag, --count);
             }
         }
     }
 
     public static synchronized LogConfig getConfigurator() {
-        return mConfig;
+        return sConfig;
     }
 
     /**
      * Enables logs for this TAG at runtime.
+     *
+     * @see LogConfig#setLoggingEnabled(boolean, boolean)
      */
     public synchronized void enableLogs() {
         mEnableLogs = true;
@@ -329,6 +349,8 @@ public class LogWrapper {
 
     /**
      * Disable logs for this TAG at runtime.
+     *
+     * @see LogConfig#setLoggingEnabled(boolean, boolean)
      */
     public synchronized void disableLogs() {
         mEnableLogs = false;
@@ -336,6 +358,8 @@ public class LogWrapper {
 
     /**
      * Enables file logs for this TAG at runtime.
+     *
+     * @see LogConfig#setLoggingEnabled(boolean, boolean)
      */
     public synchronized void enableFileLogs() {
         mEnableFileLogs = true;
@@ -343,6 +367,8 @@ public class LogWrapper {
 
     /**
      * Disable file logs for this TAG at runtime.
+     *
+     * @see LogConfig#setLoggingEnabled(boolean, boolean)
      */
     public synchronized void disableFileLogs() {
         mEnableFileLogs = false;
@@ -354,7 +380,7 @@ public class LogWrapper {
      * @param methodName the methodName
      */
     public void logMethodEntry(String methodName) {
-        if (mEnableLogs) {
+        if (mEnableLogs && sConfig.mLoggingEnabled) {
             logInfo("---> " + methodName + "()");
         }
     }
@@ -364,7 +390,7 @@ public class LogWrapper {
      * {@link #logMethodEntry(String)}.
      */
     public void logMethodEntry() {
-        if (mEnableLogs) {
+        if (mEnableLogs && sConfig.mLoggingEnabled) {
             // int i = 0;
             // for (StackTraceElement s : Thread.currentThread().getStackTrace()) {
             // i++;
@@ -384,7 +410,7 @@ public class LogWrapper {
      * @param methodName the methodName
      */
     public void logMethodExit(String methodName) {
-        if (mEnableLogs) {
+        if (mEnableLogs && sConfig.mLoggingEnabled) {
             logInfo("<--- " + methodName + "()");
         }
     }
@@ -394,11 +420,11 @@ public class LogWrapper {
      * {@link #logMethodExit(String)}.
      */
     public void logMethodExit() {
-        if (mEnableLogs) {
+        if (mEnableLogs && sConfig.mLoggingEnabled) {
             // int i = 0;
             // for (StackTraceElement s : Thread.currentThread().getStackTrace()) {
             // i++;
-            // if (s.getMethodName().equals("logMethodEntry")) {
+            // if (s.getMethodName().equals("logMethodExit")) {
             // break;
             // }
             // }
@@ -414,7 +440,7 @@ public class LogWrapper {
      * @param msg the message
      */
     public void logInfo(String msg) {
-        if (mEnableLogs) {
+        if (mEnableLogs && sConfig.mLoggingEnabled) {
             Log.i(mTag, msg);
         }
     }
@@ -425,7 +451,7 @@ public class LogWrapper {
      * @param msg the message
      */
     public void logWarning(String msg) {
-        if (mEnableLogs) {
+        if (mEnableLogs && sConfig.mLoggingEnabled) {
             Log.w(mTag, msg);
         }
     }
@@ -436,7 +462,7 @@ public class LogWrapper {
      * @param msg the message
      */
     public void logDebug(String msg) {
-        if (mEnableLogs) {
+        if (mEnableLogs && sConfig.mLoggingEnabled) {
             Log.d(mTag, msg);
         }
     }
@@ -447,7 +473,7 @@ public class LogWrapper {
      * @param msg the message
      */
     public void logError(String msg) {
-        if (mEnableLogs) {
+        if (mEnableLogs && sConfig.mLoggingEnabled) {
             Log.e(mTag, msg);
         }
     }
@@ -458,7 +484,7 @@ public class LogWrapper {
      * @param msg the message
      */
     public void logVerbose(String msg) {
-        if (mEnableLogs) {
+        if (mEnableLogs && sConfig.mLoggingEnabled) {
             Log.v(mTag, msg);
         }
     }
@@ -469,7 +495,7 @@ public class LogWrapper {
      * @param exp the exception
      */
     public void logExceptionError(Throwable e) {
-        if (mEnableLogs) {
+        if (mEnableLogs && sConfig.mLoggingEnabled) {
             Log.e(mTag, e.toString());
         }
     }
@@ -480,7 +506,7 @@ public class LogWrapper {
      * @param exp the exception that occurred.
      */
     public void logStackTrace(Throwable e) {
-        if (mEnableLogs) {
+        if (mEnableLogs && sConfig.mLoggingEnabled) {
             Log.e(mTag, getStackTace(e));
         }
     }
@@ -561,7 +587,7 @@ public class LogWrapper {
     public void writeException(Throwable e) {
         logExceptionError(e);
         synchronized (mTag) {
-            writeToFile(e.toString(), LOG_VERBOSE);
+            writeToFile(e.toString(), LOG_ERROR);
         }
     }
 
@@ -574,13 +600,12 @@ public class LogWrapper {
     public void writeStackTrace(Throwable e) {
         logStackTrace(e);
         synchronized (mTag) {
-            writeToFile(getStackTace(e), LOG_VERBOSE);
+            writeToFile(getStackTace(e), LOG_ERROR);
         }
     }
 
     private void writeToFile(String msg, String level) {
-        if (!mCanWriteFile || !mEnableFileLogs) {
-            logError("Cant write to file: " + mLogFile.getAbsolutePath());
+        if (!mCanWriteFile || !mEnableFileLogs || !sConfig.mFileLoggingEnabled) {
             return;
         }
 
